@@ -6,8 +6,8 @@ from math import cos, sin
 class UserCode:
     def __init__(self):
         # xy control gains
-        self.Kp_xy = 1.7 # xy proportional
-        self.Kd_xy = 0.02 # xy differential
+        self.Kp_xy = 1.85 # xy proportional
+        self.Kd_xy = 0.12 # xy differential
         
         # yaw control gains
         self.Kp_yaw  = 0.1 # yaw proportional
@@ -24,8 +24,8 @@ class UserCode:
         self.distance_marker_reached = 1.2
 		
 		#process noise
-        pos_noise_std = 0.008
-        yaw_noise_std = 0.008
+        pos_noise_std = 0.005
+        yaw_noise_std = 0.02
         self.Q = np.array([
             [pos_noise_std*pos_noise_std,0,0],
             [0,pos_noise_std*pos_noise_std,0],
@@ -33,8 +33,8 @@ class UserCode:
         ])
         
         #measurement noise
-        z_pos_noise_std = 0.0005
-        z_yaw_noise_std = 0.0005
+        z_pos_noise_std = 0.00005
+        z_yaw_noise_std = 0.00005
         self.R = np.array([
             [z_pos_noise_std*z_pos_noise_std,0,0],
             [0,z_pos_noise_std*z_pos_noise_std,0],
@@ -49,18 +49,18 @@ class UserCode:
              [0, 0], # marker at world position x = 0, y = 0
              [3.8, 0.0],  # marker at world position x = 2, y = 0
 			 [3.5, 1.8],
-			 [1.7, 2.9],
+			 [1.6, 3.4],
 			 [4.3, 3.3],
-			 [6.5, 4.9],
-			 [4.0, 5.3],
-			 [4.3, 8.0],
-			 [6.5, 8.0],
-			 #[8.0, 8.2],
+			 [6.8, 5.3],
+			 [4.1, 5.5],
+			 [4.25, 8.2],
+			 #[6.5, 8.0],
+			 [7.5, 8.2],
 			 [9.0, 8.7],
-			 [8.9, 11.0],
-			 [9.5, 12.5],
-			 [8.0, 10.7],
-			 [6.5, 11.0]
+			 #[8.9, 11.0],
+			 [9.2, 12.2],
+			 [7.4, 10.4],
+			 [6.0, 11.5]
         ]
         
         #TODO: Add your markers where needed
@@ -169,8 +169,35 @@ class UserCode:
             return min(current_target_marker_index + 1, len(markers) - 1)
         else:
             return current_target_marker_index
-
+            
     def compute_desired_velocity(self, markers, current_target_marker_index, position, velocity):
+        '''
+        :param markers: list of markers
+        :param current_target_marker_index: index of current target marker
+        :param position: current quadrotor position
+        :param velocity: current quadrotor velocity
+        :return - desired xy velocity represented as 2x1 numpy array
+        '''
+        if current_target_marker_index == len(markers) - 1:
+            return np.array([[0],[0]])
+        
+        next_target_marker_index = current_target_marker_index + 1
+        
+        current_target_marker = np.array([markers[current_target_marker_index]]).transpose()
+        next_target_marker = np.array([markers[next_target_marker_index]]).transpose()
+        
+        vector_current_to_next = next_target_marker - current_target_marker
+        vector_position_to_current = current_target_marker - position
+        
+        dist_current_to_next = self.norm(vector_current_to_next)
+        dist_position_to_current = self.norm(vector_position_to_current)
+        
+        if dist_position_to_current > self.distance_marker_reached * 3:
+            return vector_position_to_current
+        
+        return -1 * vector_position_to_current + vector_current_to_next
+        
+    def compute_desired_velocity2(self, markers, current_target_marker_index, position, velocity):
         '''
         :param markers: list of markers
         :param current_target_marker_index: index of current target marker
@@ -222,10 +249,10 @@ class UserCode:
         desired_velocity = self.compute_desired_velocity(markers, self.target_marker_index, position, linear_velocity)
         u = self.compute_control_command(t, dt, position, linear_velocity, np.array([markers[self.target_marker_index]]).T, desired_velocity)
         u_yaw = self.compute_yaw_control_command(t, dt, self.x[2], yaw_velocity, 0, 0)
-        # plot("desire x velocity", desired_velocity[0]);
-        # plot("desire y velocity", desired_velocity[1]);
-        # plot("x command", u[0]);
-        # plot("y command", u[1]);
+        #plot("desire x velocity", desired_velocity[0]);
+        #plot("desire y velocity", desired_velocity[1]);
+        plot("x command", u[0]);
+        #plot("y command", u[1]);
         # plot("yaw command", u_yaw);
         
         # plot("desire x", markers[self.target_marker_index][0]);
