@@ -6,8 +6,9 @@ from math import cos, sin
 class UserCode:
     def __init__(self):
         # xy control gains
-        self.Kp_xy = 1.85 # xy proportional
-        self.Kd_xy = 0.12 # xy differential
+        self.Kp_xy = 1.9 # xy proportional
+        self.Kd_xy = 0.1 # xy differential
+        self.Kh_xy = 0.1 # xy heading correction
         
         # yaw control gains
         self.Kp_yaw  = 0.1 # yaw proportional
@@ -24,8 +25,8 @@ class UserCode:
         self.distance_marker_reached = 1.2
 		
 		#process noise
-        pos_noise_std = 0.005
-        yaw_noise_std = 0.02
+        pos_noise_std = 0.009
+        yaw_noise_std = 0.009
         self.Q = np.array([
             [pos_noise_std*pos_noise_std,0,0],
             [0,pos_noise_std*pos_noise_std,0],
@@ -47,20 +48,19 @@ class UserCode:
         '''
         markers = [
              [0, 0], # marker at world position x = 0, y = 0
-             [3.8, 0.0],  # marker at world position x = 2, y = 0
+             [3.8, 0.1],  # marker at world position x = 2, y = 0
 			 [3.5, 1.8],
 			 [1.6, 3.4],
 			 [4.3, 3.3],
-			 [6.8, 5.3],
-			 [4.1, 5.5],
-			 [4.25, 8.2],
-			 #[6.5, 8.0],
-			 [7.5, 8.2],
-			 [9.0, 8.7],
-			 #[8.9, 11.0],
+			 [6.8, 4.8],
+			 [4.1, 5.4],
+			 [4.1, 8.2],
+			 [7.5, 7.9],
+			 [9.3, 8.7],
+			 [9.1, 9.5],
 			 [9.2, 12.2],
-			 [7.4, 10.4],
-			 [6.0, 11.5]
+			 [7.4, 11.0],
+			 [5.0, 11.0]
         ]
         
         #TODO: Add your markers where needed
@@ -125,6 +125,12 @@ class UserCode:
         '''
         return np.dot(F, np.dot(sigma, F.T)) + Q
 
+    def compute_heading_correction(self, position, velocity, position_desired):
+        vector_position_to_desire = position_desired - position
+        b = velocity
+        a = vector_position_to_desire
+        return -1 * np.dot((np.identity(2) - np.dot(a / np.dot(a.T, a)[0], a.T)), b)
+        
     def compute_control_command(self, t, dt, position, velocity, position_desired, velocity_desired):
         '''
         :param t: time since simulation start
@@ -138,8 +144,9 @@ class UserCode:
         
         up = self.Kp_xy * (position_desired - position)
         ud = self.Kd_xy * (velocity_desired - velocity)
+        uh = self.Kh_xy * self.compute_heading_correction(position, velocity, position_desired)
         
-        u = up + ud
+        u = up + ud + uh
         
         return u
         
@@ -192,39 +199,13 @@ class UserCode:
         dist_current_to_next = self.norm(vector_current_to_next)
         dist_position_to_current = self.norm(vector_position_to_current)
         
+        if dist_position_to_current > self.distance_marker_reached * 5:
+            return vector_position_to_current / 3
+            
         if dist_position_to_current > self.distance_marker_reached * 3:
-            return vector_position_to_current
+            return vector_position_to_current / 5
         
         return -1 * vector_position_to_current + vector_current_to_next
-        
-    def compute_desired_velocity2(self, markers, current_target_marker_index, position, velocity):
-        '''
-        :param markers: list of markers
-        :param current_target_marker_index: index of current target marker
-        :param position: current quadrotor position
-        :param velocity: current quadrotor velocity
-        :return - desired xy velocity represented as 2x1 numpy array
-        '''
-        if current_target_marker_index == len(markers) - 1:
-            return np.array([[0],[0]])
-        
-        next_target_marker_index = current_target_marker_index + 1
-        
-        current_target_marker = np.array([markers[current_target_marker_index]]).transpose()
-        next_target_marker = np.array([markers[next_target_marker_index]]).transpose()
-        
-        vector_current_next = next_target_marker - current_target_marker
-        
-        norm_vector_current_next = self.norm(vector_current_next)
-        norm_velocity = self.norm(velocity)
-        
-        scale = (np.dot(vector_current_next.transpose(), velocity) / norm_vector_current_next / norm_velocity)[0]
-        scale = max(scale, 0)
-        
-        plot("velocity scale", scale)
-        
-        return velocity * scale
-        
     
     def state_callback(self, t, dt, linear_velocity, yaw_velocity):
         '''
@@ -243,11 +224,16 @@ class UserCode:
         self.sigma = self.predictCovariance(self.sigma, F, self.Q);
         
         position = self.x[0:2]
+        rotation_matrix = self.rotation(self.x[2])
         markers = self.get_markers()
         self.target_marker_index = self.update_target_marker_index(markers, self.target_marker_index, position)
         
-        desired_velocity = self.compute_desired_velocity(markers, self.target_marker_index, position, linear_velocity)
-        u = self.compute_control_command(t, dt, position, linear_velocity, np.array([markers[self.target_marker_index]]).T, desired_velocity)
+        desired_velocity_global = self.compute_desired_velocity(markers, self.target_marker_index, position, linear_velocity)
+        desired_velocity = np.dot(rotation_matrix, desired_velocity_global)
+        
+        u_global = self.compute_control_command(t, dt, position, linear_velocity, np.array([markers[self.target_marker_index]]).T, desired_velocity)
+        u = np.dot(rotation_matrix, u_global)
+        
         u_yaw = self.compute_yaw_control_command(t, dt, self.x[2], yaw_velocity, 0, 0)
         #plot("desire x velocity", desired_velocity[0]);
         #plot("desire y velocity", desired_velocity[1]);
