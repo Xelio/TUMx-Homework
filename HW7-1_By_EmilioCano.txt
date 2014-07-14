@@ -1,0 +1,142 @@
+import math
+import numpy as np
+from plot import plot, plot_trajectory, plot_covariance_2d
+
+class UserCode:
+    def init(self):
+        self.pos=np.array([[0],[0]])
+        self.yaw=0
+        self.int_error=np.array([[0],[0]])
+        self.error=np.array([[0],[0]])
+        self.state=0
+        self.beacos=np.array([
+            [[2.5],[0.1]],#[[1.5],[0.5]],#M
+            #[[3],[0.5]],#M
+            [[3.85],[0.3]],#[[4.5],[0.5]],#M 
+            #[[3.5],[2]],#M
+            [[2.0],[2.85]],#[[1.5],[3.5]],#M
+            #[[3],[3.5]],#M
+            [[4.25],[3.5]],#[[4.5],[3.5]],#M
+            [[6.3],[4.9]],#[[7],[5.5]],#U
+            #[[5.5],[5.5]],#U
+            [[4.9],[5.0]],#[[4],[5.5]],#U
+            #[[4],[7]],#U
+            [[4.8],[7.75]],#[[4],[8.5]],#U
+            #[[5.5],[8.5]],#U
+            [[7],[8.5]],#U
+            [[8.2],[9.0]],#[[9.5],[9.5]],#T
+            #[[9.5],[11]],#T
+            [[9.2],[11.5]],#[[9.5],[12.5]],#T
+            #[[8.5],[11.25]],#[[8],[11]],#T
+            [[6.25],[9.85]]#[[6.5],[11]]#T
+        ])
+        
+    def get_markers(self):
+        '''
+        place up to 30 markers in the world
+        '''
+        markers = [
+            [0,0],
+            [1.5,0.5],
+            [3,0.5],
+            [4.5,0.5],
+            [3.5,2],
+            [1.5,3.5],
+            [3,3.5],
+            [4.5,3.5],
+            [5.75,4.25],
+            [7,5.5],
+            [9.5,9.5],
+            [9.5,11],
+            [9.5,12.5],
+            [8,11],
+            [6.5,11],
+            [7,8.5],
+            [8.25,9],
+            [5.5,8.5],
+            [4,8.5],
+            [4,7],
+            [4,5.5],
+            [5.5,5.5]
+        ]
+
+        #TODO: Add your markers where needed
+
+        return markers
+
+    def state_callback(self, t, dt, linear_velocity, yaw_velocity):
+        '''
+        called when a new odometry measurement arrives approx. 200Hz
+
+        :param t - simulation time
+        :param dt - time difference this last invocation
+        :param linear_velocity - x and y velocity in local quadrotor coordinate frame (independet of roll and pitch)
+        :param yaw_velocity - velocity around quadrotor z axis (independet of roll and pitch)
+
+        :return tuple containing linear x and y velocity control commands in local quadrotor coordinate frame (independet of roll and pitch), and yaw velocity
+        '''
+
+        cy=math.cos(self.yaw)
+        sy=math.sin(self.yaw)
+        RMAT=np.array([[cy,-sy],[sy,cy]])
+
+        self.pos=self.pos+np.dot(RMAT,linear_velocity)*dt
+        self.yaw=self.yaw+yaw_velocity*dt
+
+        diff_error=(self.error-(self.pos-self.defTrayectory(t)))/dt
+        self.error=self.pos-self.defTrayectory(t)
+        self.int_error=self.int_error+self.error
+
+        errorMod=math.sqrt(self.error[0,0]*self.error[0,0]+self.error[1,0]*self.error[1,0])
+        uniVectError=self.error/errorMod
+
+        errorLimit=0.36
+        if errorMod>errorLimit:
+            #self.error=self.error/errorMod*errorLimit
+            self.error=self.error/math.sqrt(errorMod-errorLimit+1)
+
+        velNormalError=np.dot(RMAT,linear_velocity)-np.dot(np.transpose(uniVectError),np.dot(RMAT,linear_velocity))[0,0]*uniVectError
+
+        vel=np.dot(np.transpose(RMAT),-3.35*self.error-0.25*velNormalError-0.0000*self.int_error)
+
+        self.plot(self.pos,[self.defTrayectory(t)[0,0],self.defTrayectory(t)[1,0]])
+
+        return vel,0
+
+
+    def measurement_callback(self, marker_position_world, marker_yaw_world, marker_position_relative, marker_yaw_relative):
+        '''
+        called when a new marker measurement arrives max 30Hz, marker measurements are only available if the quadrotor is
+        sufficiently close to a marker
+
+        :param marker_position_world - x and y position of the marker in world coordinates 2x1 vector
+        :param marker_yaw_world - orientation of the marker in world coordinates
+        :param marker_position_relative - x and y position of the marker relative to the quadrotor 2x1 vector
+        :param marker_yaw_relative - orientation of the marker relative to the quadrotor
+        '''
+
+        self.yaw=marker_yaw_world-marker_yaw_relative
+        cy=math.cos(self.yaw)
+        sy=math.sin(self.yaw)
+        RMAT=np.array([[cy,-sy],[sy,cy]])
+        self.pos=marker_position_world-np.dot(RMAT,marker_position_relative)
+
+
+
+
+    def defTrayectory(self,t):
+        dist=self.pos-self.beacos[self.state]
+
+        if math.sqrt(dist[0,0]*dist[0,0]+dist[1,0]*dist[1,0])<0.75:
+            self.state=self.state+1
+
+        return self.beacos[self.state]
+
+
+    def plot(self, position,objPos):
+        #from plot import plot
+        plot("x", position[0])
+        plot("y", position[1])
+        plot("x_obj", objPos[0])
+        plot("y_obj", objPos[1])
+        plot("estado",self.state)
